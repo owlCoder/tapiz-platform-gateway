@@ -1,0 +1,99 @@
+# One-shot schema-push job, added as an extra service to the real Tapiz VPS
+# compose file for this harness only — same pattern as
+# ../real-stack/docker-compose.schema-push.yml (and its duplicates in
+# ../graceful-reload/ and ../chaos/), duplicated here rather than shared for
+# the same reason those harnesses already documented: editing an
+# already-verified-passing harness to source a helper risks regressing it.
+#
+# Runs `drizzle-kit push --force` from apps/api's own package.json script
+# (`npm run db:push`) against THIS harness's disposable `postgres` service,
+# over the Compose project's private bridge network — never a host-mapped
+# Postgres port.
+#
+# Mounts the WHOLE tapiz-lms repo root READ-ONLY (npm-workspaces monorepo —
+# lockfile lives at the repo root) and shadows every workspace's existing
+# node_modules/ with disposable named volumes, exactly like the other three
+# harnesses' schema-push files, to avoid both the "no lockfile in apps/api"
+# failure and the EROFS failure documented in ../real-stack/README.md.
+services:
+  schema-push:
+    image: node:24.19.0-alpine3.23
+    working_dir: /workspace
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache python3 make g++ >/dev/null
+        npm ci --workspace=apps/api --include-workspace-root=false
+        cd apps/api
+        npm run db:push -- --force
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB}
+      DB_SSL: "false"
+    volumes:
+      - ${TAPIZ_LMS_ROOT_DIR}:/workspace:ro
+      - schema_push_root_node_modules:/workspace/node_modules
+      - schema_push_api_node_modules:/workspace/apps/api/node_modules
+      - schema_push_web_node_modules:/workspace/apps/web/node_modules
+      - schema_push_sdk_node_modules:/workspace/packages/sdk/typescript/node_modules
+    networks: [private]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["schema-push"]
+
+  # Seeds a modest, real demo dataset (institution/faculty/department/program,
+  # 2 assistants, 1 faculty manager, 24 students, 2 subjects, enrollments,
+  # sessions, attendance, score sheets/columns/rows/cells) via the product's
+  # own apps/api/scripts/seed-demo.ts (`npm run seed:demo`), reused as-is —
+  # never reimplemented as ad hoc SQL — so this drill exercises the same
+  # insert paths a real developer/E2E run does.
+  #
+  # seed-demo.ts's own guard (`checkSeedTarget`, apps/api/src/shared/seedTarget.ts)
+  # is allow-list, not deny-list: it refuses to run unless NODE_ENV != production
+  # AND the DB_HOST it sees matches /localhost|127.0.0.1|host.docker.internal/ or
+  # a whole-word /dev|development|staging|test/ in the hostname. This harness's
+  # `postgres` service (see docker-compose.postgres-alias.yml) is additionally
+  # reachable under the network alias `postgres-test`, which this service points
+  # DB_HOST at specifically so the guard's DEV_PATTERN allows it — read, not
+  # weakened; the guard itself is never touched (hard constraint: frozen scripts
+  # / real production code is read-only reference here).
+  seed-demo:
+    image: node:24.19.0-alpine3.23
+    working_dir: /workspace
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache python3 make g++ >/dev/null
+        npm ci --workspace=apps/api --include-workspace-root=false
+        cd apps/api
+        npm run seed:demo
+    environment:
+      DB_HOST: postgres-test
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB}
+      DB_SSL: "false"
+    volumes:
+      - ${TAPIZ_LMS_ROOT_DIR}:/workspace:ro
+      - schema_push_root_node_modules:/workspace/node_modules
+      - schema_push_api_node_modules:/workspace/apps/api/node_modules
+      - schema_push_web_node_modules:/workspace/apps/web/node_modules
+      - schema_push_sdk_node_modules:/workspace/packages/sdk/typescript/node_modules
+    networks: [private]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["seed-demo"]
+
+volumes:
+  schema_push_root_node_modules:
+  schema_push_api_node_modules:
+  schema_push_web_node_modules:
+  schema_push_sdk_node_modules:

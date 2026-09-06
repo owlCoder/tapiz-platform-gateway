@@ -1,0 +1,18 @@
+# Adds a second network alias to the real, unmodified `postgres` service so
+# apps/api/scripts/seed-demo.ts's own production guard (`checkSeedTarget`,
+# allow-list on DB_HOST: localhost/127.0.0.1/host.docker.internal, or a
+# whole-word dev/development/staging/test) recognizes this disposable
+# container as a safe seed target when the seed-demo service in
+# docker-compose.schema-push.yml points DB_HOST at `postgres-test`.
+#
+# Compose merges `networks:`/`aliases:` across -f files additively (this is a
+# mapping key, not a sequence like `ports:`/`volumes:` — see
+# ../real-stack/docker-compose.gateway-real-test-ports.yml's own comment on
+# why THAT file needs `!override`; this one does not, and adding `!override`
+# here would incorrectly drop the base file's own `[private]` network
+# membership instead of adding to it).
+services:
+  postgres:
+    networks:
+      private:
+        aliases: [postgres-test]

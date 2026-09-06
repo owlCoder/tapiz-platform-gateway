@@ -1,0 +1,110 @@
+# A SECOND, entirely separate disposable Postgres instance — the restore
+# target. Never reuses the source postgres's compose project, volume, or
+# network; this is a fresh, empty instance every run.
+#
+# Uses the exact same image/version as the real Tapiz VPS compose file's
+# `postgres` service (postgres:18.4) so pg_dump/pg_restore never has to
+# reconcile a version skew between source and target, matching what a real
+# restore-drill would want (same major version on both ends).
+services:
+  postgres-restored:
+    image: postgres:18.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    # postgres:18+ images store data at /var/lib/postgresql (pg_ctlcluster-
+    # compatible major-version-specific subdirectory), not
+    # /var/lib/postgresql/data — mounting at .../data directly makes the
+    # entrypoint refuse to start ("PostgreSQL data in: ...data (unused
+    # mount/volume)"). Matches the real Tapiz compose file's own postgres
+    # service mount exactly (apps/api/ops/vps/docker-compose.yml: `postgres_data:/var/lib/postgresql`).
+    volumes:
+      - postgres_restored_data:/var/lib/postgresql
+    networks: [restored]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # No host port published anywhere — private bridge network only, same
+    # no-public-data-container constraint the other three harnesses hold.
+    mem_limit: 1g
+    pids_limit: 64
+
+  # The general-api lane, pointed DIRECTLY at the restored Postgres (no
+  # PgBouncer) for the final "API smoke test against the restored copy"
+  # requirement. Direct connection is simpler and sufficient here — PgBouncer
+  # exists in the real stack for connection-budget reasons under concurrent
+  # load (see apps/api/CLAUDE.md's "Standalone VPS target" section: "PgBouncer
+  # is not part of the single-process baseline"), which this single-request
+  # smoke test does not exercise.
+  general-api-restored:
+    image: ${TAPIZ_API_IMAGE:-tapiz-lms-api-backup-restore-test:local}
+    build:
+      context: ${TAPIZ_LMS_ROOT_DIR}
+      dockerfile: apps/api/ops/vps/Dockerfile
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres-restored:5432/${POSTGRES_DB:?set POSTGRES_DB}
+      DB_SSL: "false"
+      DB_POOL_MAX: "5"
+      # No real Valkey in this phase — the general lane's own health endpoint
+      # and route handlers used by the smoke test (auth/login 4xx) do not
+      # require it; DISABLE_BACKGROUND_WORKERS keeps flush timers (which do
+      # touch Valkey) from ever running and crashing the process for lack of
+      # a cache connection.
+      VALKEY_URL: redis://127.0.0.1:6399
+      DISABLE_BACKGROUND_WORKERS: "true"
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET}
+      JWT_EXPIRY: 8h
+      JWT_REFRESH_EXPIRY: 7d
+      WEBAUTHN_RP_ID: api.tapiz-backup-restore.test
+      WEBAUTHN_ORIGINS: https://api.tapiz-backup-restore.test
+      SALT_ROUNDS: "10"
+      CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET}
+      API_VERSION: backup-restore-test
+      CACHE_PREFIX: "tapiz:backup-restore-test"
+      QR_EXPIRY_SECONDS: "300"
+      ATTENDANCE_FLUSH_INTERVAL_MS: "300000"
+      ATTENDANCE_FLUSH_THRESHOLD: "50"
+      QUIZ_SUBMIT_FLUSH_INTERVAL_MS: "60000"
+      APP_VERSION: backup-restore-test
+      LOG_LEVEL: info
+      ALLOWED_STUDENT_EMAIL_SUFFIXES: "ac.rs,edu.rs"
+      LICENSE_GRACE_DAYS: "7"
+      RESOURCE_BOOKING_ENABLED: "true"
+      CLIENT_URL: https://api.tapiz-backup-restore.test
+    depends_on:
+      postgres-restored:
+        condition: service_healthy
+    networks: [restored]
+    # No `ports`/`expose` host binding — the smoke test reaches this
+    # container's :3001 from another container on the same `restored`
+    # network (see run.sh's smoke-test step), never via a host-published
+    # port. See run.sh/README.md for why this was chosen over a
+    # 127.0.0.1-only loopback bind.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 1024m
+    pids_limit: 128
+
+volumes:
+  postgres_restored_data:
+
+networks:
+  restored:
+    driver: bridge
