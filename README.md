@@ -1,4 +1,4 @@
-# Platform VPS Gateway
+# Tapiz Platform Gateway
 
 One Caddy instance owns public ports 80/443 for every product hosted on the
 same VPS. It is independent of the Aura Beats and Tapiz LMS Compose projects.
