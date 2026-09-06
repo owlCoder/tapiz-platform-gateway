@@ -211,6 +211,28 @@ rationale, exact commands, and measured results.
 sh tests/integration/graceful-reload/run.sh
 ```
 
+## Local integration test (disposable, failure isolation / chaos)
+
+`tests/integration/chaos/` is a fourth, separate harness — later than the
+stub, real-stack, and graceful-reload harnesses above. It reuses the same
+real Tapiz LMS VPS stack bring-up as `tests/integration/real-stack/` (with
+its own distinct disposable resource names, network `tapiz-edge-chaos-test`,
+ports `48080`/`48443`), running alongside the existing fake Aura stub
+(`tests/integration/docker-compose.aura-stub.yml`, read-only reference,
+never copied or modified), both behind this repository's real gateway Caddy
+config. It proves that Caddy's own existing `lb_policy round_robin` +
+active health checks absorb a single auth replica restarting, and that
+stopping the scan lane, the general lane, the Aura stub, or the entire Tapiz
+stack each fails only that specific route (a clean `502`/`503`, never a
+hang) while every unaffected lane/product keeps working normally, with full
+recovery verified after each scenario. See
+`tests/integration/chaos/README.md` for the full design rationale, exact
+commands, and measured results.
+
+```sh
+sh tests/integration/chaos/run.sh
+```
+
 ## Future VPS activation
 
 This repository is configuration only. Actual VPS activation requires a

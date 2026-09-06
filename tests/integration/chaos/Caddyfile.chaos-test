@@ -1,0 +1,16 @@
+# Test-harness-only entry file — see ../real-stack/Caddyfile.real-stack.test /
+# ../graceful-reload/Caddyfile.reload-test / ../stubs/Caddyfile.test for why a
+# global options block cannot arrive via `import` from snippets/ (it must be
+# the very first thing in the file Caddy actually loads). `local_certs`
+# switches Caddy to its own internal CA: api.tapiz-chaos.test and
+# api.aura-chaos.test are both reserved, non-issuable TLDs with no real ACME
+# path, exactly like the other three harnesses' `.test` hostnames.
+#
+# Everything below is imported verbatim from the real repo. This file adds
+# nothing except the global option above and never redefines a site/snippet.
+{
+	local_certs
+}
+
+import snippets/*.caddy
+import sites/*.caddy

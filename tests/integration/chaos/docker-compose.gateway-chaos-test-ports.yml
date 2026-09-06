@@ -1,0 +1,27 @@
+# Override the real gateway's 80/443 host bindings with unprivileged, local-only
+# ports for THIS harness only. Distinct from every other harness's port pair
+# (18080/18443 stub, 28080/28443 real-stack, 38080/38443 graceful-reload) so
+# all four could in principle coexist on one host without a port collision,
+# even though they are not intended to run concurrently.
+#
+# Same two lessons already documented in ../../../README.md's "Real bugs found
+# and fixed" section, reused verbatim rather than rediscovered:
+#
+# 1. Compose merges sequence-typed keys (`ports:`, `volumes:`) across -f files
+#    additively unless tagged `!override` — without it this file would ADD
+#    48080/48443 alongside the base file's real 80/443, not replace them.
+# 2. Every relative path in a merged -f file resolves against the FIRST -f
+#    file's directory (the repo root, where the real docker-compose.yml lives),
+#    not this file's own directory — so `./tests/integration/...` below is
+#    written relative to the repo root, not to chaos/.
+services:
+  caddy:
+    ports: !override
+      - "48080:80"
+      - "48443:443"
+    volumes: !override
+      - ./tests/integration/chaos/Caddyfile.chaos-test:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      - ./snippets:/etc/caddy/snippets:ro
+      - caddy_data:/data
+      - caddy_config:/config
