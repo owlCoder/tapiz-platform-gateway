@@ -1,0 +1,21 @@
+# Test-harness-only entry file — see ../real-stack/Caddyfile.real-stack.test /
+# ../stubs/Caddyfile.test for why a global options block cannot arrive via
+# `import` from snippets/ (it must be the very first thing in the file Caddy
+# actually loads). `local_certs` switches Caddy to its own internal CA:
+# api.tapiz-reload.test is a reserved, non-issuable TLD with no real ACME path,
+# exactly like the other two harnesses' `.test` hostnames.
+#
+# Unlike the other two harnesses, this file imports sites from a LOCAL
+# `sites-live/` directory (a live, bind-mounted COPY of the real
+# `sites/tapiz.caddy`, refreshed by run.sh before every reload) rather than the
+# repo's real `sites/` directly — see run.sh step 8 for why: the graceful
+# reload proof in this harness needs to mount a config directory it can safely
+# overwrite mid-run with a harmless, then a broken, edit, without ever touching
+# this repository's real `sites/tapiz.caddy` file. `snippets/` is still the
+# real, unmodified repo directory (never edited by this harness).
+{
+	local_certs
+}
+
+import snippets/*.caddy
+import sites/*.caddy

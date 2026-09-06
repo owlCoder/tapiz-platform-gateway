@@ -184,6 +184,33 @@ it.
 sh tests/integration/real-stack/run.sh
 ```
 
+## Local integration test (disposable, graceful reload proof)
+
+`tests/integration/graceful-reload/` is a third, separate harness — later
+than both the stub harness and the real-stack harness above. It reuses the
+same real Tapiz LMS VPS stack bring-up as `tests/integration/real-stack/`
+(with its own distinct disposable resource names, network
+`tapiz-edge-reload-test`, ports `38080`/`38443`) behind this repository's
+real gateway Caddy config, then proves that a live gateway serving continuous
+real login + scan traffic:
+
+1. Rejects a deliberately broken Caddy config via `caddy validate` in a
+   throwaway container, before it ever reaches the running gateway process.
+2. Keeps serving the currently-active config unaffected when a bad config is
+   never given the chance to load.
+3. Accepts a real, valid, harmless config change via `caddy reload` as a
+   same-process operation (same container ID/`StartedAt`, never restarted),
+   with zero dropped/failed requests across the whole reload window.
+4. Never restarts any of the four real API lane containers as a side effect
+   of the gateway-only reload.
+
+See `tests/integration/graceful-reload/README.md` for the full design
+rationale, exact commands, and measured results.
+
+```sh
+sh tests/integration/graceful-reload/run.sh
+```
+
 ## Future VPS activation
 
 This repository is configuration only. Actual VPS activation requires a
