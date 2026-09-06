@@ -167,6 +167,23 @@ a future harness change doesn't have to rediscover the same failure modes:
 - Real GitHub Actions, VPS provisioning, DNS cutover, or any production
   secret — none of those are touched by this repository or this harness.
 
+## Local integration test (disposable, real Tapiz LMS VPS stack)
+
+`tests/integration/real-stack/` is a separate, later harness than the stub
+harness above. Instead of fake Node stub upstreams, it brings up the **real**
+Tapiz LMS VPS stack (real Postgres, real Valkey, real PgBouncer, the real
+traffic-isolated `auth-api-1`/`auth-api-2`/`scan-api`/`general-api` lanes,
+the real `worker`, the real `scheduler` — `apps/api/ops/vps/docker-compose.yml`,
+referenced from a local `tapiz-lms` checkout, never copied) behind this same
+repository's real, unmodified gateway config. See
+`tests/integration/real-stack/README.md` for what it proves, exact run
+commands, measured results, and the real bugs found and fixed while building
+it.
+
+```sh
+sh tests/integration/real-stack/run.sh
+```
+
 ## Future VPS activation
 
 This repository is configuration only. Actual VPS activation requires a

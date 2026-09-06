@@ -1,0 +1,14 @@
+# Test-harness-only entry file — see ../stubs/Caddyfile.test for why a global
+# options block cannot arrive via `import` from snippets/ (it must be the very
+# first thing in the file Caddy actually loads). `local_certs` switches Caddy
+# to its own internal CA: api.tapiz-real.test is a reserved, non-issuable TLD
+# with no real ACME path, exactly like the stub harness's api.tapiz.test.
+#
+# Everything below is imported verbatim from the real repo. This file adds
+# nothing except the global option above and never redefines a site/snippet.
+{
+	local_certs
+}
+
+import snippets/*.caddy
+import sites/*.caddy
