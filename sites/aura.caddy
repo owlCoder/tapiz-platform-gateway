@@ -1,0 +1,19 @@
+# Aura's API and HLS delivery are isolated behind their own product network.
+# Removing or restarting Aura cannot affect Tapiz routing or certificates.
+{$AURA_API_DOMAIN:api.aura.test} {
+	import gateway_common
+
+	@hls path /hls/*
+	handle @hls {
+		reverse_proxy aura-media-delivery:8790 {
+			import api_transport
+		}
+	}
+
+	handle {
+		reverse_proxy aura-api:8787 {
+			header_up X-Real-IP {http.request.remote.host}
+			import api_transport
+		}
+	}
+}

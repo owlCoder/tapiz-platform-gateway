@@ -1,0 +1,19 @@
+(gateway_common) {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+}
+
+(api_transport) {
+	transport http {
+		dial_timeout 5s
+		response_header_timeout 30s
+		read_timeout 120s
+	}
+}

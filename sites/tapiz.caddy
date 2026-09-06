@@ -1,0 +1,45 @@
+# Tapiz exposes only API lanes to the gateway. PostgreSQL, Valkey, PgBouncer,
+# worker and scheduler remain on the product-private network and are never
+# gateway upstreams.
+{$TAPIZ_API_DOMAIN:api.tapiz.test} {
+	import gateway_common
+
+	@auth_login {
+		path /api/auth/login
+		method POST
+	}
+	handle @auth_login {
+		reverse_proxy tapiz-auth-api-1:3001 tapiz-auth-api-2:3001 {
+			lb_policy round_robin
+			health_uri /api/health/live
+			health_interval 10s
+			health_timeout 5s
+			header_up X-Real-IP {http.request.remote.host}
+			import api_transport
+		}
+	}
+
+	@attendance_scan {
+		path /api/attendance/scan /api/attendance/scan-student
+		method POST
+	}
+	handle @attendance_scan {
+		reverse_proxy tapiz-scan-api:3001 {
+			health_uri /api/health/live
+			health_interval 10s
+			health_timeout 5s
+			header_up X-Real-IP {http.request.remote.host}
+			import api_transport
+		}
+	}
+
+	handle {
+		reverse_proxy tapiz-general-api:3001 {
+			health_uri /api/health/live
+			health_interval 10s
+			health_timeout 5s
+			header_up X-Real-IP {http.request.remote.host}
+			import api_transport
+		}
+	}
+}

@@ -1,0 +1,13 @@
+{
+	# The admin API stays inside the Caddy container. Reload it with
+	# `docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+	email {$CADDY_EMAIL:ops@example.invalid}
+
+	log {
+		format json
+	}
+}
+
+# Product routes are deliberately separate from the shared gateway policy.
+import snippets/*.caddy
+import sites/*.caddy

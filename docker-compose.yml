@@ -1,0 +1,45 @@
+name: platform-gateway
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    env_file: ${GATEWAY_ENV_FILE:-.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      - ./snippets:/etc/caddy/snippets:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - tapiz_edge
+      - aura_edge
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add:
+      - NET_BIND_SERVICE
+    mem_limit: 128m
+    pids_limit: 64
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  tapiz_edge:
+    name: ${TAPIZ_EDGE_NETWORK:-tapiz-edge}
+    external: true
+  aura_edge:
+    name: ${AURA_EDGE_NETWORK:-aura-edge}
+    external: true
