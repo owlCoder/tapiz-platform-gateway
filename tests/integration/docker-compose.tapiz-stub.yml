@@ -1,0 +1,74 @@
+name: gateway-test-tapiz-stub
+
+# Disposable stand-in for Tapiz's real apps/api/ops/vps/docker-compose.yml lanes.
+# Joins the SAME external network name/alias contract the real Tapiz stack uses
+# (see tapiz-lms's db208cf48: tapiz-auth-api-1, tapiz-auth-api-2, tapiz-scan-api,
+# tapiz-general-api on an external `tapiz-edge` network) so the real gateway
+# Caddyfile can be validated unmodified against it. No database, no real app
+# code, no host ports anywhere in this file — only the gateway container is
+# ever allowed a public port, and this file never opens one.
+
+x-stub-base: &stub-base
+  image: node:22-alpine
+  working_dir: /stub
+  volumes:
+    - ./stubs/stub-server.mjs:/stub/stub-server.mjs:ro
+  command: ["node", "stub-server.mjs"]
+  environment:
+    STUB_PORT: "3001"
+    STUB_HEALTH_PATH: "/api/health/live"
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  mem_limit: 64m
+  pids_limit: 32
+  # No `ports:` anywhere in this file — these stubs are reachable only from the
+  # gateway container over the shared external edge network.
+
+services:
+  tapiz-auth-api-1:
+    <<: *stub-base
+    environment:
+      STUB_PORT: "3001"
+      STUB_HEALTH_PATH: "/api/health/live"
+      STUB_LANE_NAME: "tapiz-auth-api-1"
+    networks:
+      tapiz_edge:
+        aliases: [tapiz-auth-api-1]
+
+  tapiz-auth-api-2:
+    <<: *stub-base
+    environment:
+      STUB_PORT: "3001"
+      STUB_HEALTH_PATH: "/api/health/live"
+      STUB_LANE_NAME: "tapiz-auth-api-2"
+    networks:
+      tapiz_edge:
+        aliases: [tapiz-auth-api-2]
+
+  tapiz-scan-api:
+    <<: *stub-base
+    environment:
+      STUB_PORT: "3001"
+      STUB_HEALTH_PATH: "/api/health/live"
+      STUB_LANE_NAME: "tapiz-scan-api"
+    networks:
+      tapiz_edge:
+        aliases: [tapiz-scan-api]
+
+  tapiz-general-api:
+    <<: *stub-base
+    environment:
+      STUB_PORT: "3001"
+      STUB_HEALTH_PATH: "/api/health/live"
+      STUB_LANE_NAME: "tapiz-general-api"
+    networks:
+      tapiz_edge:
+        aliases: [tapiz-general-api]
+
+networks:
+  tapiz_edge:
+    name: ${TAPIZ_EDGE_NETWORK:-tapiz-edge}
+    external: true

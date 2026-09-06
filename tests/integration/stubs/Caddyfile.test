@@ -1,0 +1,21 @@
+{
+	# Test-harness-only global option. Caddyfile syntax requires the global
+	# options block to be the very first thing in the entry file — it cannot be
+	# injected via `import` from snippets/, which is why this exists as a whole
+	# separate entry file rather than an extra file under snippets/ (confirmed
+	# by direct reproduction: "server block without any key is global
+	# configuration, and if used, it must be first" when local_certs was
+	# instead placed in an imported snippets/*.caddy file).
+	#
+	# `local_certs` makes Caddy use its own internal CA for every site in this
+	# process instead of real ACME issuance. This test's .test hostnames are a
+	# reserved, non-issuable TLD with no real DNS/internet path to a CA, so the
+	# real Caddyfile's production ACME behavior cannot and must not run here.
+	local_certs
+}
+
+# Everything below is imported verbatim from the real repo — this file adds
+# nothing except the global option above. It never redefines a site or
+# snippet the real sites/*.caddy or snippets/*.caddy files already declare.
+import snippets/*.caddy
+import sites/*.caddy

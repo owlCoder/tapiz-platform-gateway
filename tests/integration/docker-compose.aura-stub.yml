@@ -1,0 +1,51 @@
+name: gateway-test-aura-stub
+
+# Disposable stand-in for Aura's real ops/production/docker-compose.yml lanes.
+# Joins the SAME external network name/alias contract the real Aura stack uses
+# (see aura-beats's 30845773: aura-api on port 8787, aura-media-delivery on
+# port 8790, both on an external `aura-edge` network) so the real gateway
+# Caddyfile can be validated unmodified against it. No database, no real app
+# code, no host ports anywhere in this file — only the gateway container is
+# ever allowed a public port, and this file never opens one.
+
+x-stub-base: &stub-base
+  image: node:22-alpine
+  working_dir: /stub
+  volumes:
+    - ./stubs/stub-server.mjs:/stub/stub-server.mjs:ro
+  command: ["node", "stub-server.mjs"]
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  mem_limit: 64m
+  pids_limit: 32
+  # No `ports:` anywhere in this file — these stubs are reachable only from the
+  # gateway container over the shared external edge network.
+
+services:
+  aura-api:
+    <<: *stub-base
+    environment:
+      STUB_PORT: "8787"
+      STUB_HEALTH_PATH: "/health"
+      STUB_LANE_NAME: "aura-api"
+    networks:
+      aura_edge:
+        aliases: [aura-api]
+
+  aura-media-delivery:
+    <<: *stub-base
+    environment:
+      STUB_PORT: "8790"
+      STUB_HEALTH_PATH: "/health"
+      STUB_LANE_NAME: "aura-media-delivery"
+    networks:
+      aura_edge:
+        aliases: [aura-media-delivery]
+
+networks:
+  aura_edge:
+    name: ${AURA_EDGE_NETWORK:-aura-edge}
+    external: true

@@ -1,0 +1,52 @@
+# Override the real gateway's 80/443 host bindings with unprivileged, local-only
+# ports for this disposable harness only. Never used against a real VPS — the
+# real docker-compose.yml (unmodified) still binds 80/443 for actual activation.
+#
+# NOTE ON RELATIVE PATHS IN THIS FILE: when Compose merges multiple -f files,
+# every file's relative paths resolve against the FIRST file's directory
+# (docker-compose.yml, i.e. the repo root), not each override file's own
+# directory — confirmed by direct reproduction (`docker compose config` showed
+# a `./stubs/...` reference here resolving to the wrong, nonexistent
+# `vps-gateway/stubs/...` instead of this file's actual
+# `vps-gateway/tests/integration/stubs/...`). Every relative path below is
+# therefore written relative to the repo root, not to this file.
+#
+# Compose merges sequence-typed keys like `ports:` across -f files by default —
+# it does NOT replace them — so without the `!override` merge tag below, this
+# file would ADD 18080/18443 alongside the base file's 80/443 rather than
+# replacing them, and this disposable test would actually bind real host ports
+# 80/443. Confirmed by direct reproduction: `docker port` showed both `0.0.0.0:80`
+# and `0.0.0.0:18080` bound simultaneously before this tag was added.
+services:
+  caddy:
+    ports: !override
+      - "18080:80"
+      - "18443:443"
+    # `volumes:` is ALSO a sequence Compose merges (appends) across -f files,
+    # exactly like `ports:` above, so `!override` is needed here too — every
+    # mount the base file declares must be repeated here verbatim, plus the
+    # one intentional substitution: /etc/caddy/Caddyfile now points at
+    # stubs/Caddyfile.test instead of the repo's real Caddyfile.
+    #
+    # Why a whole substitute entry file, not an extra snippets/*.caddy file:
+    # Caddyfile syntax requires a global options block (`{ ... }` with no site
+    # address) to be the very first thing in the file that Caddy actually
+    # loads — it cannot arrive via `import` from a subdirectory. Confirmed by
+    # direct reproduction: putting `local_certs` in an extra snippets/*.caddy
+    # file made Caddy fail every reload with "server block without any key is
+    # global configuration, and if used, it must be first", which silently
+    # crash-looped the container while curl saw only connection failures.
+    # stubs/Caddyfile.test's only content is that one global option plus the
+    # exact same two `import` lines the real Caddyfile has — it changes
+    # nothing about routing and does not duplicate any site/snippet logic.
+    # `local_certs` itself exists because this test's .test hostnames are a
+    # reserved, non-issuable TLD with no real path to a real ACME CA, so the
+    # real Caddyfile's production ACME behavior cannot run here; every other
+    # mount (sites/, snippets/, caddy_data, caddy_config) is the real,
+    # unmodified repo content, never a copy.
+    volumes: !override
+      - ./tests/integration/stubs/Caddyfile.test:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      - ./snippets:/etc/caddy/snippets:ro
+      - caddy_data:/data
+      - caddy_config:/config
