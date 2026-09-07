@@ -1,0 +1,96 @@
+# One-shot schema-push + seed-demo jobs, added as extra services to the real
+# Tapiz VPS compose file for this harness only — same pattern as
+# ../real-stack/docker-compose.schema-push.yml and
+# ../backup-restore/docker-compose.schema-push.yml (duplicated here rather
+# than shared, for the same reason those harnesses already documented:
+# editing an already-verified-passing harness to source a helper risks
+# regressing it).
+#
+# schema-push: runs `drizzle-kit push --force` from apps/api's own
+# package.json script (`npm run db:push`) against THIS harness's disposable
+# `postgres` service, over the Compose project's private bridge network —
+# never a host-mapped Postgres port.
+#
+# seed-demo: seeds a modest, real demo dataset (institution/faculty/
+# department/program, 2 assistants, 1 faculty manager, 24 students, 2
+# subjects, enrollments, sessions, attendance, score sheets/columns/rows/
+# cells) via the product's own apps/api/scripts/seed-demo.ts (`npm run
+# seed:demo`), reused as-is — never reimplemented as ad hoc SQL. This phase
+# needs real enrolled students/sessions so the attendance-flush job route
+# triggered in run.sh has real pending-flush-shaped data to operate on, not
+# an empty schema. Points DB_HOST at the `postgres-test` alias (see
+# docker-compose.postgres-alias.yml) so seed-demo.ts's own `checkSeedTarget`
+# allow-list guard recognizes this as a safe target — the guard itself is
+# read, never weakened or bypassed.
+#
+# Mounts the WHOLE tapiz-lms repo root READ-ONLY (npm-workspaces monorepo —
+# lockfile lives at the repo root) and shadows every workspace's existing
+# node_modules/ with disposable named volumes, exactly like the other
+# harnesses' schema-push files, to avoid both the "no lockfile in apps/api"
+# failure and the EROFS failure documented in ../real-stack/README.md.
+services:
+  schema-push:
+    image: node:24.19.0-alpine3.23
+    working_dir: /workspace
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache python3 make g++ >/dev/null
+        npm ci --workspace=apps/api --include-workspace-root=false
+        cd apps/api
+        npm run db:push -- --force
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB}
+      DB_SSL: "false"
+    volumes:
+      - ${TAPIZ_LMS_ROOT_DIR}:/workspace:ro
+      - schema_push_root_node_modules:/workspace/node_modules
+      - schema_push_api_node_modules:/workspace/apps/api/node_modules
+      - schema_push_web_node_modules:/workspace/apps/web/node_modules
+      - schema_push_sdk_node_modules:/workspace/packages/sdk/typescript/node_modules
+    networks: [private]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["schema-push"]
+
+  seed-demo:
+    image: node:24.19.0-alpine3.23
+    working_dir: /workspace
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        apk add --no-cache python3 make g++ >/dev/null
+        npm ci --workspace=apps/api --include-workspace-root=false
+        cd apps/api
+        npm run seed:demo
+    environment:
+      DB_HOST: postgres-test
+      DB_PORT: "5432"
+      DB_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:?set POSTGRES_DB}
+      DB_SSL: "false"
+    volumes:
+      - ${TAPIZ_LMS_ROOT_DIR}:/workspace:ro
+      - schema_push_root_node_modules:/workspace/node_modules
+      - schema_push_api_node_modules:/workspace/apps/api/node_modules
+      - schema_push_web_node_modules:/workspace/apps/web/node_modules
+      - schema_push_sdk_node_modules:/workspace/packages/sdk/typescript/node_modules
+    networks: [private]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["seed-demo"]
+
+volumes:
+  schema_push_root_node_modules:
+  schema_push_api_node_modules:
+  schema_push_web_node_modules:
+  schema_push_sdk_node_modules:

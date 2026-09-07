@@ -233,6 +233,32 @@ commands, and measured results.
 sh tests/integration/chaos/run.sh
 ```
 
+## Local integration test (disposable, scheduler/worker coexistence)
+
+`tests/integration/scheduler-worker/` is a fifth, separate harness — later
+than the stub, real-stack, graceful-reload, chaos, and backup-restore
+harnesses above, and the final phase of this test suite. It reuses the same
+real Tapiz LMS VPS stack bring-up as `tests/integration/real-stack/` (with
+its own distinct disposable resource names, network
+`tapiz-edge-scheduler-test`, ports `58080`/`58443`), seeded with a real demo
+dataset via the product's own `seed-demo.ts` (same technique as
+`tests/integration/backup-restore/`), then proves that the real `worker`
+(background attendance/quiz flush timers) and the real `scheduler`
+(authenticated cron-route caller) coexist correctly with sustained real
+login/scan/general traffic: the scheduler's own job route
+(`POST /api/attendance/flush`, `Authorization: Bearer $CRON_SECRET`) is
+triggered directly and succeeds more than once while traffic and the worker
+are both active, with measured PgBouncer/Postgres connection state and
+Valkey memory/eviction numbers recorded before and after, and zero
+starvation of the auth/scan lanes throughout. See
+`tests/integration/scheduler-worker/README.md` for the exact trigger/
+measurement mechanisms chosen and why, full measured results, and a real bug
+found and fixed while building it.
+
+```sh
+sh tests/integration/scheduler-worker/run.sh
+```
+
 ## Future VPS activation
 
 This repository is configuration only. Actual VPS activation requires a
