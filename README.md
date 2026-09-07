@@ -335,9 +335,9 @@ graceful reload preserves the Boards route and the gateway process identity;
 no host port on any Boards/stub container at any point; only the gateway
 container publishes host ports (`61080`/`61443`).
 
-### Real bugs found and fixed while building this harness
+### History: bugs found and fixed at the source
 
-1. **The real, unmodified `tapiz-boards/ops/vps/docker-compose.yml` joins
+1. **The real `tapiz-boards/ops/vps/docker-compose.yml` originally joined
    `app` to `boards_edge` using the plain list form
    (`networks: [boards_internal, boards_edge]`), which gives it Compose's
    default network alias — the service name, `app` — not the
@@ -347,35 +347,31 @@ container publishes host ports (`61080`/`61443`).
    route, even long after the container itself reported Docker-healthy —
    confirmed via Caddy's own active health-check log line
    (`Get "http://boards-app:3004/api/health"` failing outright, since that
-   hostname was never resolvable). Not a gateway config bug — the contract
-   and `sites/boards.caddy` correctly anticipate a `boards-app` alias the
-   same way Tapiz/Aura's real compose files already provide one, and this
-   harness may not edit the real Boards compose file (read-only, per hard
-   constraint). Fixed harness-side only, in
-   `tests/integration/boards-real-stack/docker-compose.boards-harness-overrides.yml`,
-   by re-declaring `app`'s `boards_edge` membership with an explicit
-   `aliases: [boards-app]` via a `-f` override — Compose merges network
-   attachments per-network-key, so this adds the alias without touching any
-   other part of the real service definition.
-2. **The real `tapiz-boards/ops/vps/docker-compose.yml` hardcodes
-   `name: boards_edge` on its external network, with no
+   hostname was never resolvable). Originally worked around harness-side
+   only via a `-f` override. **Fixed at the source**: the real
+   `tapiz-boards/ops/vps/docker-compose.yml` now declares `app`'s
+   `boards_edge` membership in explicit map form with
+   `aliases: [boards-app]` directly, matching the pattern Tapiz/Aura's real
+   compose files already use. The harness-side override no longer exists.
+2. **The real `tapiz-boards/ops/vps/docker-compose.yml` originally
+   hardcoded `name: boards_edge` on its external network, with no
    `${BOARDS_EDGE_NETWORK:-...}`-style env var indirection at all** (unlike
    Tapiz's `${TAPIZ_EDGE_NETWORK:-tapiz-edge}` pattern every other
-   real-stack-based harness's own disposable network name relies on) —
-   confirmed by direct inspection. A disposable name like
-   `boards-edge-real-test` would therefore never actually be read by
-   Boards' own compose file. Fixed by using the literal `boards_edge` name
-   for this harness's own disposable network too (still fully torn down by
-   the `cleanup` trap every run, verified clean via `docker network ls`
-   before and after) — documented as a deviation from every other harness's
-   "always a distinct disposable name" convention, forced by the real
-   product file rather than a choice.
+   real-stack-based harness's own disposable network name relies on),
+   forcing this harness to reuse the literal production name for its own
+   disposable network (a deviation from the "always a distinct disposable
+   name" convention). **Fixed at the source**: the real compose file now
+   declares `name: ${BOARDS_EDGE_NETWORK:-boards_edge}`, preserving the same
+   default for production use. This harness now passes its own genuinely
+   distinct name (`boards-edge-real-stack-test`) via the generated
+   `.env.boards-real-stack` file — no deviation from the naming convention
+   remains.
 3. **Docker rejects host ports above 65535** (`invalid hostPort: 68080`) —
    an early draft picked `68080`/`68443` to extend the existing port-pair
    pattern (`18080`, `28080`, `38080`, `48080`, `58080`, ...); `68080`
    exceeds the valid TCP port range. Fixed by using `61080`/`61443`
    instead — still distinct from every other harness's pair, still a valid
-   port.
+   port. This remains a harness-only quirk, not a real-repo issue.
 4. No other new Docker/Compose/Caddy bugs distinct from the ones already
    documented in the other harnesses' own READMEs were hit — this harness
    reuses the same disposable-`.env`/`assert`/`!override`/`local_certs`

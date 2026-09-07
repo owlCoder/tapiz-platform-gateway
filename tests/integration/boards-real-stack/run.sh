@@ -64,25 +64,14 @@ TAPIZ_HOST="api.tapiz-boards-test.test"
 AURA_HOST="api.aura-boards-test.test"
 GATEWAY_TLS_PORT="61443"
 
-# Distinct from every other harness's edge network names — EXCEPT Boards'
-# own. REAL BUG found while building this harness: the real, unmodified
-# tapiz-boards/ops/vps/docker-compose.yml hardcodes `name: boards_edge` on
-# its external network (no `${BOARDS_EDGE_NETWORK:-...}` interpolation at
-# all, unlike Tapiz's `${TAPIZ_EDGE_NETWORK:-tapiz-edge}` pattern that every
-# other harness's TAPIZ_EDGE_NETWORK env var relies on) — confirmed by
-# direct inspection of that file. A disposable `boards-edge-real-test` name
-# is therefore never actually read by Boards' own compose file; it would
-# silently try to attach to the real `boards_edge` network name instead
-# (harmless on this dev machine since no real `boards_edge` network is
-# normally running, but not the intended isolation). This is a real product
-# compose limitation, not something this harness may fix by editing
-# tapiz-boards/ops/vps/docker-compose.yml (read-only per this task's hard
-# constraints). Fixed here by using the literal `boards_edge` name for this
-# harness's own disposable network too — teardown (the `cleanup` trap) still
-# removes it every run, so this is safe as long as no other process on this
-# host concurrently owns a network literally named `boards_edge` (verified
-# clean before/after every run via `docker network ls`).
-BOARDS_EDGE_NETWORK_NAME="boards_edge"
+# Distinct from every other harness's edge network names, including the real
+# `boards_edge` default. The real tapiz-boards/ops/vps/docker-compose.yml now
+# supports `${BOARDS_EDGE_NETWORK:-boards_edge}` interpolation (fixed at the
+# source after this harness's first run surfaced that it was previously
+# hardcoded with no override), so a genuinely disposable name is used here
+# the same way every other real-stack-based harness's own edge network name
+# is.
+BOARDS_EDGE_NETWORK_NAME="boards-edge-real-stack-test"
 TAPIZ_EDGE_NETWORK_NAME="tapiz-edge-boards-test"
 AURA_EDGE_NETWORK_NAME="aura-edge-boards-test"
 
@@ -122,12 +111,11 @@ assert() {
   fi
 }
 
-# Always includes docker-compose.boards-harness-overrides.yml — not just for
-# the one-shot `migrate` service, but because it also carries the
-# `boards-app` network alias fix for `app` (see that file's own "REAL BUG"
-# comment). Every boards_compose call needs that alias present, not only the
-# migrate-profile ones, so there is exactly one compose function rather than
-# a split "with/without overrides" pair.
+# Always includes docker-compose.boards-harness-overrides.yml, which now adds
+# only the one-shot `migrate` service — the real, unmodified Boards compose
+# file already declares the `boards-app` alias itself. Kept as a single
+# compose function (rather than a split "with/without overrides" pair) since
+# every call still needs `migrate` available even when not invoked.
 boards_compose() {
   docker compose -p "$BOARDS_PROJECT" --env-file "$BOARDS_ENV" \
     -f "$BOARDS_COMPOSE" -f "$here/docker-compose.boards-harness-overrides.yml" "$@"
@@ -179,6 +167,7 @@ BOARDS_APP_PASSWORD_GEN=$(rand)
 AUTH_SECRET_GEN=$(rand)
 
 cat > "$BOARDS_ENV" <<EOF
+BOARDS_EDGE_NETWORK=$BOARDS_EDGE_NETWORK_NAME
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD_GEN
 BOARDS_APP_PASSWORD=$BOARDS_APP_PASSWORD_GEN
 AUTH_SECRET=$AUTH_SECRET_GEN
@@ -206,13 +195,11 @@ log "== 2. Create disposable external edge networks (Boards + Tapiz stub + Aura 
 #
 # BOARDS_DIR (absolute path, for docker-compose.boards-harness-overrides.yml's
 # migrate build context) is exported once here rather than re-prefixed on
-# every boards_compose call site below. BOARDS_EDGE_NETWORK is deliberately
-# NOT exported/interpolated anywhere in this harness — the real Boards
-# compose file hardcodes `name: boards_edge` with no env var indirection at
-# all (see BOARDS_EDGE_NETWORK_NAME's own comment above), so setting that
-# variable would have no effect on Boards' own compose; the disposable
-# network this harness creates below is therefore named literally
-# `boards_edge` to match what the real file actually expects.
+# every boards_compose call site below. BOARDS_EDGE_NETWORK itself is set
+# inside the generated $BOARDS_ENV file above (step 1) — the real, unmodified
+# Boards compose file now interpolates `${BOARDS_EDGE_NETWORK:-boards_edge}`,
+# and `--env-file "$BOARDS_ENV"` is enough for Compose to read it from there,
+# same as every other value in that file.
 export BOARDS_DIR
 docker network create "$BOARDS_EDGE_NETWORK_NAME" >/dev/null
 check "created disposable $BOARDS_EDGE_NETWORK_NAME network" $?
@@ -266,7 +253,7 @@ boards_compose build app
 check "real Boards app image built from the real, unmodified multi-stage Dockerfile" $?
 
 boards_compose up -d --quiet-pull app
-check "real Boards app container started (no ports: key anywhere in this harness's compose; boards-app alias applied via harness override)" $?
+check "real Boards app container started (no ports: key anywhere in this harness's compose; boards-app alias comes from the real, unmodified Boards compose file)" $?
 
 if wait_healthy boards_compose app 90; then
   check "Boards app reports healthy (real Next.js server booted, real DB connectivity)" 0

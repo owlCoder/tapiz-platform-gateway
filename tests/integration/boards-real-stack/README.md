@@ -75,9 +75,10 @@ regardless of whether `smoke`/`migrate` are even invoked, since Compose
 merges all services declared in every `-f` file). This harness's own
 `docker-compose.boards-harness-overrides.yml` duplicates only the `migrate`
 service definition (identical `build`/`command`/`environment`/`networks`
-shape) with no `app` port override anywhere. It also carries the
-`boards-app` network alias fix for `app` — see "Real bugs found and fixed"
-bug #1 below.
+shape) with no `app` port override anywhere. It no longer carries any
+network-alias override — the real Boards compose file now declares
+`boards-app` as an explicit alias itself (see "History: bugs found and
+fixed at the source" below).
 
 ## Why no `<PRODUCT>_ENV_FILE` export is needed here (checked, not assumed)
 
@@ -101,7 +102,7 @@ to re-verify this from scratch.
 
 | Resource | This harness |
 |---|---|
-| Boards edge network | `boards_edge` (literal — see "Real bugs found and fixed" bug #2; the real Boards compose file hardcodes this name) |
+| Boards edge network | `boards-edge-real-stack-test` |
 | Tapiz stub edge network | `tapiz-edge-boards-test` |
 | Aura stub edge network | `aura-edge-boards-test` |
 | Boards hostname | `api.boards-real.test` |
@@ -127,9 +128,8 @@ to re-verify this from scratch.
   non-issuable TLD.
 - `docker-compose.boards-harness-overrides.yml` — a one-shot `migrate`
   service (profile `migrate`) added to the real Boards compose file via
-  `-f`, plus the `boards-app` network alias fix for `app`; see "Why a
-  dedicated docker-compose.boards-harness-overrides.yml" above and "Real
-  bugs found and fixed" bug #1 below.
+  `-f`; see "Why a dedicated docker-compose.boards-harness-overrides.yml"
+  above.
 
 ## Running it
 
@@ -153,39 +153,42 @@ run — kept there rather than duplicated in two places, since the root
 README already distinguishes the three proof tiers for Boards. Summary: 46
 checks passed on 2026-09-07 (exit code `0`).
 
-## Real bugs found and fixed while building this harness
+## History: bugs found and fixed at the source
 
-Full detail (including the exact reproduction and fix) lives in the
-repository root `README.md`'s Boards section. Summary:
+Full detail (including the exact reproduction) lives in the repository root
+`README.md`'s Boards section. Summary:
 
-1. The real Boards compose file gives `app` Compose's default network alias
-   (`app`) on `boards_edge`, not the product-prefixed `boards-app` alias
-   `sites/boards.caddy` expects — fixed with a harness-side `-f` override
-   adding `aliases: [boards-app]`, since the real product file may not be
-   edited.
-2. The real Boards compose file hardcodes `name: boards_edge` with no env
-   var override — this harness's own disposable network is therefore also
-   named literally `boards_edge` (documented deviation from the
-   "always-distinct-name" convention every other harness follows), rather
-   than a `-test`-suffixed name that would silently never be read.
+1. The real Boards compose file originally gave `app` Compose's default
+   network alias (`app`) on `boards_edge`, not the product-prefixed
+   `boards-app` alias `sites/boards.caddy` expects. Originally worked around
+   with a harness-side `-f` override; **fixed at the source** in
+   `tapiz-boards/ops/vps/docker-compose.yml`, which now declares
+   `aliases: [boards-app]` on `app`'s `boards_edge` network entry directly.
+   The harness-side override no longer exists.
+2. The real Boards compose file originally hardcoded `name: boards_edge`
+   with no env var override, forcing this harness's own disposable network
+   to also be named literally `boards_edge` (a documented deviation from the
+   "always-distinct-name" convention every other harness follows). **Fixed
+   at the source**: the real compose file now declares
+   `name: ${BOARDS_EDGE_NETWORK:-boards_edge}`, so this harness passes its
+   own genuinely distinct `boards-edge-real-stack-test` name via the
+   generated `$BOARDS_ENV` file, with the real default preserved for
+   production use when the var is unset.
 3. `68080`/`68443` (an early port-pair choice extending the existing
    pattern) exceeds the valid TCP port range — fixed by using `61080`/`61443`.
+   This one remains a harness-only quirk, not a real-repo issue.
 
 ## What this harness does NOT prove
 
 Same boundaries as every other real-stack-based harness in this repository,
 plus:
 
-- Real DNS, TLS/ACME issuance, or multi-host behavior. Note the one
-  deliberate exception to this repository's usual "always a distinct
-  disposable name" convention: this harness's Boards edge network is named
-  literally `boards_edge` (not a `-test`-suffixed name), because the real
-  `tapiz-boards/ops/vps/docker-compose.yml` hardcodes that name with no env
-  var override available — see "Real bugs found and fixed" bug #2 above.
-  This harness's own test hostnames (`api.boards-real.test`,
-  `api.tapiz-boards-test.test`, `api.aura-boards-test.test`) and compose
-  project names are still fully disposable and distinct, and the network is
-  still fully torn down every run.
+- Real DNS, TLS/ACME issuance, or multi-host behavior. The Boards edge
+  network is now a genuinely distinct, disposable name
+  (`boards-edge-real-stack-test`, see "Distinct disposable resource names"
+  above) like every other resource this harness creates — no exception to
+  the naming convention remains (see "History: bugs found and fixed at the
+  source" above).
 - The real `tapiz-boards.vercel.app` deployment, the Aiven MySQL rollback
   database, or any real cutover — never touched by this harness.
 - Full reload-safety mechanics (background traffic continuity across a

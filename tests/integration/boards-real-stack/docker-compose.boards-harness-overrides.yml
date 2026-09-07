@@ -1,16 +1,12 @@
-# Harness-only overrides to the real Boards VPS compose file (via -f), used
+# Harness-only addition to the real Boards VPS compose file (via -f), used
 # on EVERY docker compose invocation in this harness (see run.sh's single
-# boards_compose() function). Two things live here:
-#
-# 1. A one-shot `migrate` service. Deliberately NOT reusing
-#    tapiz-boards/ops/vps/docker-compose.test.yml directly, because that file
-#    ALSO overrides `app`'s ports to publish a loopback host port
-#    (127.0.0.1:13004:3004) — this harness requires Boards to never publish
-#    any host port, not even loopback-only, so `migrate` is duplicated here
-#    instead (identical command/build/network shape to the real file's own
-#    `migrate` service) without pulling in that port override.
-# 2. A `boards-app` network alias fix for `app` — see the "REAL BUG" comment
-#    below.
+# boards_compose() function): a one-shot `migrate` service. Deliberately NOT
+# reusing tapiz-boards/ops/vps/docker-compose.test.yml directly, because that
+# file ALSO overrides `app`'s ports to publish a loopback host port
+# (127.0.0.1:13004:3004) — this harness requires Boards to never publish any
+# host port, not even loopback-only, so `migrate` is duplicated here instead
+# (identical command/build/network shape to the real file's own `migrate`
+# service) without pulling in that port override.
 #
 # Never a host-mapped Postgres port — reaches `postgres` only over the
 # Compose project's own private `boards_internal` network, matching every
@@ -23,34 +19,13 @@
 # gotcha ../../real-stack/README.md already documented for the gateway's own
 # ports-override files. An absolute path sidesteps it entirely.
 #
-# REAL BUG found while building this harness: the real, unmodified
-# tapiz-boards/ops/vps/docker-compose.yml joins `app` to `boards_edge` using
-# the plain list form (`networks: [boards_internal, boards_edge]`), which
-# gives it Compose's DEFAULT network alias — the service name, `app` — not
-# the product-prefixed `boards-app` alias this gateway's own
-# ../../../README.md "Product integration contract" (and sites/boards.caddy)
-# expect. A first run of this harness reproducibly got a real `503` from
-# Caddy on every single request to the Boards route, even long after the
-# container itself reported Docker-healthy: `caddy validate`'s own active
-# health-check log line (`http.handlers.reverse_proxy.health_checker.active`)
-# showed `Get "http://boards-app:3004/api/health"` failing outright — that
-# hostname was never resolvable on boards_edge, because no container was
-# ever aliased `boards-app`. This is not a gateway config bug (the contract
-# text and sites/boards.caddy were written first, correctly anticipating a
-# `boards-app` alias the same way Tapiz/Aura's real compose files already
-# provide via `networks: { <edge>: { aliases: [...] } }`) and not something
-# this harness may fix by editing tapiz-boards/ops/vps/docker-compose.yml
-# (real product file, read-only per this task's hard constraints). Fixed
-# here instead, harness-side only, by re-declaring `app`'s boards_edge
-# membership with an explicit alias via -f override — Compose merges network
-# attachments per-network-key, so this ADDS the alias without touching any
-# other part of the real service definition.
+# No `app` network-alias override here anymore: the real, unmodified
+# tapiz-boards/ops/vps/docker-compose.yml now declares `boards-app` as an
+# explicit alias on `boards_edge` itself (fixed at the source after this
+# harness's first run surfaced the gap — see git history for the original
+# "REAL BUG" writeup this comment replaces). This harness now runs the real
+# Boards Compose file completely unmodified for that concern.
 services:
-  app:
-    networks:
-      boards_edge:
-        aliases: [boards-app]
-
   migrate:
     build:
       context: ${BOARDS_DIR}
