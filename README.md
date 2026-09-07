@@ -10,12 +10,14 @@ not contain application authorization, database access or business logic.
 The gateway joins one small external edge network per product:
 
 ```text
-platform-gateway/caddy ── tapiz-edge ── Tapiz public API lanes only
-                       └─ aura-edge  ── Aura API + media delivery only
+platform-gateway/caddy ── tapiz-edge  ── Tapiz public API lanes only
+                       ├─ aura-edge   ── Aura API + media delivery only
+                       └─ boards-edge ── Boards app container only
 ```
 
 Tapiz PostgreSQL, Valkey, PgBouncer, worker and scheduler stay on Tapiz's
 private network. Aura PostgreSQL and workers stay on Aura's private network.
+Boards PostgreSQL stays on Boards' own private `boards_internal` network.
 Products do not join each other's edge networks.
 
 ## Product integration contract
@@ -28,6 +30,7 @@ Before a product is attached, its Compose configuration must:
    - Tapiz: `tapiz-auth-api-1`, `tapiz-auth-api-2`, `tapiz-scan-api`,
      `tapiz-general-api`.
    - Aura: `aura-api`, `aura-media-delivery`.
+   - Boards: `boards-app` (single upstream, no lane split).
 4. Remove all product-level host bindings for ports 80/443.
 
 Never use Docker container IP addresses. Product private databases and queues
@@ -258,6 +261,125 @@ found and fixed while building it.
 ```sh
 sh tests/integration/scheduler-worker/run.sh
 ```
+
+## Local integration test (disposable, real Boards VPS stack + independence)
+
+`tests/integration/boards-real-stack/` is a sixth, separate harness — later
+than the stub, real-stack, graceful-reload, chaos, backup-restore, and
+scheduler-worker harnesses above, and the first to bring a third product
+(Tapiz Boards) behind this gateway. It brings up the **real** Boards VPS
+stack (`tapiz-boards/ops/vps/docker-compose.yml`, referenced from a local
+`tapiz-boards` checkout, never copied — real PostgreSQL, the real migration
+script, and the real production Next.js image built from the product's own
+multi-stage `Dockerfile`) behind this repository's real, unmodified gateway
+config (now including the new `sites/boards.caddy`), with the existing fake
+Tapiz and Aura stubs (`../docker-compose.tapiz-stub.yml` /
+`../docker-compose.aura-stub.yml`, read-only reference, never copied or
+modified) running alongside it to prove independence in both directions.
+
+Three tiers, kept explicit and never blurred:
+
+- **(a) Proven by this local harness**: Boards' real app + real Postgres +
+  real migration come up correctly behind this gateway's real, unmodified
+  Caddy config; `GET /api/health` returns a real `200` through the gateway's
+  test hostname; stopping Boards entirely leaves Tapiz+Aura (stub) routing
+  unaffected; stopping Tapiz+Aura (stub) entirely leaves Boards unaffected;
+  Boards publishes zero host ports at any point; a live `caddy reload`
+  preserves the Boards route and leaves the gateway container's own process
+  untouched.
+- **(b) Requires a real test VPS, not proven here**: real DNS for a Boards
+  hostname, real ACME/TLS issuance, multi-host behavior, Boards' actual
+  production data or domain, and any real burst/load test of the Boards
+  route through this shared gateway.
+- **(c) Production-only, explicitly out of scope**: the real
+  `tapiz-boards.vercel.app` Vercel deployment, the legacy Aiven MySQL
+  rollback database, and any real cutover of Boards traffic. This harness
+  never contacts any of these.
+
+```sh
+sh tests/integration/boards-real-stack/run.sh
+# or, from a different tapiz-boards location:
+BOARDS_DIR=/path/to/tapiz-boards sh tests/integration/boards-real-stack/run.sh
+```
+
+See `tests/integration/boards-real-stack/README.md` for the exact resource
+names and full design rationale.
+
+### Status: run on 2026-09-07 — 46/46 checks passed
+
+Exit code `0`. Measured HTTP codes from an actual run:
+
+| Check | Code |
+|---|---|
+| Baseline `GET /api/health` through the gateway (real Boards app) | `200` |
+| Baseline Tapiz stub / Aura stub routing | `200` / `200` |
+| Boards stopped: `api.boards-real.test` | `502` |
+| Boards stopped: Tapiz stub / Aura stub (unaffected) | `200` / `200` |
+| Boards recovered: `GET /api/health` | `200` |
+| Tapiz+Aura stubs stopped: their own routes | `502` / `502` |
+| Tapiz+Aura stubs stopped: Boards (unaffected) | `200` |
+| Tapiz+Aura stubs recovered | `200` / `200` |
+| Pre-reload Boards route | `200` |
+| `caddy reload` (live gateway, config incl. `sites/boards.caddy`) | exit `0` |
+| Post-reload Boards route, gateway container ID/`StartedAt` | `200`, unchanged |
+
+Full pass list (46 checks): `caddy validate` + gateway compose config with 3
+sites parse cleanly; disposable `.env.boards-real-stack` generated with
+random-only local secrets; disposable `boards_edge`/Tapiz-stub/Aura-stub
+networks created; real Boards Postgres healthy; real `npm run db:migrate`
+applied the schema; real Boards app image built from the real, unmodified
+multi-stage `Dockerfile` and reports healthy; Tapiz + Aura stubs started;
+baseline routing for all three products; both independence directions
+(Boards down / Tapiz+Aura down) with full recovery verified after each;
+graceful reload preserves the Boards route and the gateway process identity;
+no host port on any Boards/stub container at any point; only the gateway
+container publishes host ports (`61080`/`61443`).
+
+### Real bugs found and fixed while building this harness
+
+1. **The real, unmodified `tapiz-boards/ops/vps/docker-compose.yml` joins
+   `app` to `boards_edge` using the plain list form
+   (`networks: [boards_internal, boards_edge]`), which gives it Compose's
+   default network alias — the service name, `app` — not the
+   product-prefixed `boards-app` alias this gateway's own "Product
+   integration contract" (and `sites/boards.caddy`) expect.** A first run
+   reproducibly got a real `503` from Caddy on every request to the Boards
+   route, even long after the container itself reported Docker-healthy —
+   confirmed via Caddy's own active health-check log line
+   (`Get "http://boards-app:3004/api/health"` failing outright, since that
+   hostname was never resolvable). Not a gateway config bug — the contract
+   and `sites/boards.caddy` correctly anticipate a `boards-app` alias the
+   same way Tapiz/Aura's real compose files already provide one, and this
+   harness may not edit the real Boards compose file (read-only, per hard
+   constraint). Fixed harness-side only, in
+   `tests/integration/boards-real-stack/docker-compose.boards-harness-overrides.yml`,
+   by re-declaring `app`'s `boards_edge` membership with an explicit
+   `aliases: [boards-app]` via a `-f` override — Compose merges network
+   attachments per-network-key, so this adds the alias without touching any
+   other part of the real service definition.
+2. **The real `tapiz-boards/ops/vps/docker-compose.yml` hardcodes
+   `name: boards_edge` on its external network, with no
+   `${BOARDS_EDGE_NETWORK:-...}`-style env var indirection at all** (unlike
+   Tapiz's `${TAPIZ_EDGE_NETWORK:-tapiz-edge}` pattern every other
+   real-stack-based harness's own disposable network name relies on) —
+   confirmed by direct inspection. A disposable name like
+   `boards-edge-real-test` would therefore never actually be read by
+   Boards' own compose file. Fixed by using the literal `boards_edge` name
+   for this harness's own disposable network too (still fully torn down by
+   the `cleanup` trap every run, verified clean via `docker network ls`
+   before and after) — documented as a deviation from every other harness's
+   "always a distinct disposable name" convention, forced by the real
+   product file rather than a choice.
+3. **Docker rejects host ports above 65535** (`invalid hostPort: 68080`) —
+   an early draft picked `68080`/`68443` to extend the existing port-pair
+   pattern (`18080`, `28080`, `38080`, `48080`, `58080`, ...); `68080`
+   exceeds the valid TCP port range. Fixed by using `61080`/`61443`
+   instead — still distinct from every other harness's pair, still a valid
+   port.
+4. No other new Docker/Compose/Caddy bugs distinct from the ones already
+   documented in the other harnesses' own READMEs were hit — this harness
+   reuses the same disposable-`.env`/`assert`/`!override`/`local_certs`
+   patterns and inherits those fixes.
 
 ## Future VPS activation
 
