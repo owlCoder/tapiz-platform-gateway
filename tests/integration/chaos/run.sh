@@ -238,6 +238,14 @@ check "generated disposable .env.tapiz-chaos-test with random-only local secrets
 log ""
 log "== 2. Create disposable external edge networks (Tapiz + Aura) =="
 export TAPIZ_EDGE_NETWORK="$TAPIZ_EDGE_NETWORK_NAME"
+# `--env-file "$TAPIZ_ENV"` only controls Compose's OWN variable
+# interpolation — it does not become part of the shell environment the real
+# docker-compose.yml's own `env_file: ${TAPIZ_ENV_FILE:-.env}` key
+# interpolates against. Without this export, that key silently falls back to
+# the real apps/api/ops/vps/.env on this machine. See
+# ../real-stack/run.sh's identical comment for the direct reproduction that
+# confirmed this.
+export TAPIZ_ENV_FILE="$TAPIZ_ENV"
 docker network create "$TAPIZ_EDGE_NETWORK_NAME" >/dev/null
 check "created disposable $TAPIZ_EDGE_NETWORK_NAME network" $?
 docker network create "$AURA_EDGE_NETWORK_NAME" >/dev/null

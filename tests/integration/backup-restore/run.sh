@@ -151,6 +151,14 @@ check "generated disposable .env.source-backup-restore-test with a random-only l
 
 log ""
 log "== 2. Create the unused-but-required external tapiz_edge network (real compose file declares it external; this phase never joins it) =="
+# `--env-file "$SOURCE_ENV"` only controls Compose's OWN variable
+# interpolation — it does not become part of the shell environment the real
+# docker-compose.yml's own `env_file: ${TAPIZ_ENV_FILE:-.env}` key
+# interpolates against. Without this export, that key silently falls back to
+# the real apps/api/ops/vps/.env on this machine. See
+# ../real-stack/run.sh's identical comment for the direct reproduction that
+# confirmed this.
+export TAPIZ_ENV_FILE="$SOURCE_ENV"
 docker network create "$SOURCE_EDGE_NETWORK_NAME" >/dev/null
 check "created disposable $SOURCE_EDGE_NETWORK_NAME network (declared external by the real compose file, never actually routed to in this phase)" $?
 
