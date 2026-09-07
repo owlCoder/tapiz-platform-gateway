@@ -22,6 +22,7 @@ services:
     networks:
       - tapiz_edge
       - aura_edge
+      - boards_edge
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -42,4 +43,7 @@ networks:
     external: true
   aura_edge:
     name: ${AURA_EDGE_NETWORK:-aura-edge}
+    external: true
+  boards_edge:
+    name: ${BOARDS_EDGE_NETWORK:-boards-edge}
     external: true

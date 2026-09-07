@@ -1,0 +1,18 @@
+# Boards exposes a single Next.js app container to the gateway. Its
+# PostgreSQL database stays on the product-private `boards_internal` network
+# and is never a gateway upstream. Unlike Tapiz's traffic-isolated lanes,
+# Boards has exactly one upstream — no lane-based path routing is needed, a
+# single catch-all reverse_proxy is correct here.
+{$BOARDS_API_DOMAIN:api.boards.test} {
+	import gateway_common
+
+	handle {
+		reverse_proxy boards-app:3004 {
+			health_uri /api/health
+			health_interval 10s
+			health_timeout 5s
+			header_up X-Real-IP {http.request.remote.host}
+			import api_transport
+		}
+	}
+}
