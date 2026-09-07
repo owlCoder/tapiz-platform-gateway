@@ -33,7 +33,10 @@ services:
       target: build
     command: ["npm", "run", "db:migrate"]
     environment:
-      DATABASE_URL: postgresql://tapiz_boards_app:${BOARDS_APP_PASSWORD:?set BOARDS_APP_PASSWORD}@postgres:5432/tapiz_boards
+      # Owner role, not app role: the real Boards init script no longer grants
+      # CREATE to tapiz_boards_app (privilege-separation fix), so migrations
+      # must run as tapiz_boards_owner — matching POSTGRES-MIGRATION-RUNBOOK.md.
+      DATABASE_URL: postgresql://tapiz_boards_owner:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/tapiz_boards
     depends_on:
       postgres:
         condition: service_healthy
